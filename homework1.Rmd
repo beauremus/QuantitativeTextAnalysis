@@ -1,0 +1,174 @@
+---
+title: "Homework 1"
+author: "Beau Harrison"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+http://www.trfetzer.com/wp-content/uploads/Homework1.pdf
+
+Parameters:
+
+pid (debate id), url, sequence within debate, debate, date, speaker, what was spoken (each fragment separately)
+
+### Libraries
+
+```{r}
+library(xml2) # html_nodes
+library(rvest) # %>% notation
+library(data.table)
+```
+
+### Get links within desired datespan
+
+This block finds link nodes based on date
+
+I'm using REGEX to find those debates from this election but I can remove this filter to return all elections
+
+I'm not removing this filter because populating my data.table is extremely slow already
+
+I find all rows with the class of 'docdate' and validate their text value against a regex date outputting only the rows I'm interested in
+
+```{r}
+raw.html <- read_html('http://www.presidency.ucsb.edu/debates.php')
+html.rows <-  raw.html %>%
+              xml_nodes('tr')
+html.docdates <-  html.rows %>%
+                  xml_nodes('.docdate')
+validDateRows <- grep('(January|February|March|April|May|June|July|August|September|October|November|December) [0-9]*(st|nd|rd|th)?, (2015|2016)', html.docdates)
+linkRows <- sapply(html.docdates[validDateRows], function(x) max(grep(x, html.rows)))
+```
+
+### Get attributes from each link
+
+#### url
+
+From the rows returned above find all anchor tags and return the value of the href property, url
+
+```{r}
+urls <- sapply(html.rows[linkRows], function(x) x %>% xml_nodes('a') %>% xml_attr('href'))
+```
+
+#### pid
+
+Use a string split to parse the pid from the url above
+
+```{r}
+getPid <- function(url) return(unlist(strsplit(url, '='))[2])
+```
+
+#### date
+
+Get the text from the docdates to use as the dates for each debate
+
+```{r}
+getDate <- function(htmlPage) return(htmlPage %>% html_node('.docdate') %>% xml_text())
+```
+
+#### debate
+
+Fortuantely there was a unique class name for the title of the debates
+
+I use the paperstitle class to get the debate name for each debate
+
+```{r}
+getDebate <- function(htmlPage) return(htmlPage %>% html_node('.paperstitle') %>% xml_text())
+```
+
+#### speaker
+
+To find each speaker I find each paragraph and look for a bold tag inside the paragraph
+
+If there is not a bold tag I ignore the line returned
+
+I also do some clean up by parsing the colon out of each name
+
+```{r}
+getSpeakers <- function(htmlPage) { #xml_child seems to be faster than html_node
+  ps <- htmlPage %>% xml_nodes('p')
+  bs <- unlist(lapply(ps[2:length(ps)], function(p) p %>% xml_child('b') %>% xml_text()))
+  newSpeakerLines <- which(!is.na(bs))
+  speakers <- unlist(lapply(newSpeakerLines, function(lineIndex) gsub(':','',bs[lineIndex])))
+  return(speakers)
+}
+```
+
+#### text
+
+Here I use a similar strategy to the names but I'm parsing out the names
+
+I also use the lines that I found the names on to combine p tags until I find another line with a name and create a new text block
+
+```{r}
+getTexts <- function(htmlPage) { #xml_child seems to be faster than html_node
+  ps <- htmlPage %>% xml_nodes('p')
+  bs <- unlist(lapply(ps[2:length(ps)], function(p) p %>% xml_child('b') %>% xml_text()))
+  newSpeakerLines <- which(!is.na(bs))
+  psTextWNames <- ps %>% xml_text()
+  psText <- gsub('^[A-z]+:', '', psTextWNames[2:length(psTextWNames)]) # parse out names
+  newSpeakerLines <- c(newSpeakerLines, length(psText)) # append index for last line of text
+  speakerText <- unlist(lapply(1:(length(newSpeakerLines)-1), function(lineNumber) paste(psText[newSpeakerLines[lineNumber]:(newSpeakerLines[lineNumber+1]-1)], sep = ' ', collapse = '')))
+  return(speakerText)
+}
+```
+
+#### combined
+
+Parameters:
+
+pid (debate id), url, sequence within debate, debate, date, speaker, what was spoken (each fragment separately)
+
+This was very slow with data.table even after unlisting all my lists
+
+```{r}
+pidList <- integer()
+urlList <- character()
+seqList <- integer()
+debateList <- character()
+dateList <- character()
+speakerList <- character()
+textList <- character()
+
+for(i in 1L:length(urls)) {
+  htmlPage <- read_html(urls[i])
+  pid <- getPid(urls[i])
+  speakers <- getSpeakers(htmlPage)
+  speakerList <- c(speakerList, speakers)
+  texts <- getTexts(htmlPage)
+  textList <- c(textList, texts)
+  debate <- getDebate(htmlPage)
+  date <- getDate(htmlPage)
+  
+  for(j in 1L:length(speakers)) {
+    pidList <- c(pidList, pid)
+    urlList <- c(urlList, urls[i])
+    seqList <- c(seqList, j)
+    debateList <- c(debateList, debate)
+    dateList <- c(dateList, date)
+  }
+}
+
+final <- data.table(pid=pidList,url=urlList,seq=seqList,debate=debateList,date=dateList,speaker=speakerList,text=textList)
+```
+
+### Results
+
+#### Number of Debates
+
+```{r}
+sum(!duplicated(final$debate))
+```
+
+#### Number of Speakers
+
+```{r}
+sum(!duplicated(final$speaker))
+```
+
+#### head() of data.frame or data.table objects
+
+```{r}
+head(final)
+```
