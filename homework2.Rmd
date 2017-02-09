@@ -7,6 +7,160 @@ output:
     df_print: paged
 ---
 
-```{r}
+### Libraries
 
+```{r}
+library(NLP) # Required for tm
+library(tm) # Corpus
+library(data.table) # rbindlist
+library(quanteda) # tokenize
+library(plyr) # join
+#require(readtext) # reading text files
+```
+
+### Parse Files
+
+```{r}
+# function takes DirSource for files and a string for speakerName
+parseCorpus <- function(files, speakerName) {
+  # Parse into R structures
+  docs <- Corpus(files) # I didn't realize I was using the wrong Corpus until far too late, it works...
+  if(length(files) > 1) {
+    docFrames <- lapply(docs, function(doc) data.frame(doc$content))
+    docFrame <- rbindlist(docFrames)
+  } else {
+    docFrame <- docs$content
+  }
+  # Clean up
+  findString <- paste(char_toupper(speakerName), ': ')
+  docFrame <- lapply(docFrame, function(text) gsub(findString, '', text))
+  docFrame <- lapply(docFrame, function(text) gsub('\\([A-Z ]+\\)', '', text))
+  # Tokenize
+    # Seperate words and remove punctuation
+  unigramTokens <- tokenize(paste(docFrame, collapse=''), removePunct=TRUE, removeNumbers=TRUE, removeSymbols=TRUE, concatenator=' ')
+  bigramTokens <- tokenize(paste(docFrame, collapse=''), removePunct=TRUE, removeNumbers=TRUE, removeSymbols=TRUE, concatenator=' ', ngrams=2L)
+    # Without stopwords
+  unigramTokensNoStopwords <- removeFeatures(unigramTokens, stopwords('english'))
+  bigramTokensNoStopwords <- removeFeatures(bigramTokens, stopwords('english'))
+    # Put lower case versions in data.table
+  unigrams <- data.table(token=tolower(unlist(unigramTokens)))
+  bigrams <- data.table(token=tolower(unlist(bigramTokens)))
+    # Without stopwords
+  unigramsNoStopwords <- data.table(token=tolower(unlist(unigramTokensNoStopwords)))
+  bigramsNoStopwords <- data.table(token=tolower(unlist(bigramTokensNoStopwords)))
+    # Count instances
+  unigramCount <- unigrams[, .N, by=token][order(N, decreasing=TRUE)]
+  bigramCount <- bigrams[, .N, by=token][order(N, decreasing=TRUE)]
+    # Without stopwords
+  unigramCountNoStopwords <- unigramsNoStopwords[, .N, by=token][order(N, decreasing=TRUE)]
+  bigramCountNoStopwords <- bigramsNoStopwords[, .N, by=token][order(N, decreasing=TRUE)]
+    # Add canidate names
+  unigramCount$canidate <- speakerName
+  bigramCount$canidate <- speakerName
+    # Without stopwords
+  unigramCountNoStopwords$canidate <- speakerName
+  bigramCountNoStopwords$canidate <- speakerName
+  # Return all four sets of tokens
+  return(list('unigramCount'=unigramCount, 'bigramCount'=bigramCount, 'unigramCountNoStopwords'=unigramCountNoStopwords, 'bigramCountNoStopwords'=bigramCountNoStopwords))
+}
+```
+
+### Chi^2 calculation
+
+```{r}
+chiSquared <- function(input) {
+  DT <- data.table(join(input[canidate == "Clinton"][, list(token, clintonCount = as.numeric(N))], input[canidate == "Trump"][, list(token, trumpCount = as.numeric(N))], type="full"))
+  DT[is.na(clintonCount)]$clintonCount <- 0
+  DT[is.na(trumpCount)]$trumpCount <- 0
+  DT[, `:=`(totalCount, clintonCount + trumpCount)]
+  DT <- DT[order(totalCount, decreasing=TRUE)][totalCount > 5]
+  DT[, `:=`(totalClinton, sum(clintonCount))]
+  DT[, `:=`(totalTrump, sum(trumpCount))]
+  DT[, `:=`(chi2, (totalClinton + totalTrump) * (trumpCount * (totalClinton - clintonCount) - clintonCount * (totalTrump - trumpCount))^2/((trumpCount + clintonCount) * (trumpCount + (totalTrump - trumpCount)) * (clintonCount + (totalClinton - clintonCount)) * ((totalTrump - trumpCount) + (totalClinton - clintonCount))))]
+  
+  return(DT[order(chi2, decreasing=TRUE)])
+}
+```
+
+### Apply functions
+
+```{r}
+clintonList <- parseCorpus(DirSource('CampaignSpeeches',pattern='clinton'), 'Clinton')
+trumpList <- parseCorpus(DirSource('CampaignSpeeches',pattern='trump'), 'Trump')
+# Combine data.tables
+unigramCount <- rbind(clintonList$unigramCount, trumpList$unigramCount)[order(N, decreasing=TRUE)]
+bigramCount <- rbind(clintonList$bigramCount, trumpList$bigramCount)[order(N, decreasing=TRUE)]
+# Without stopwords
+unigramCountNoStopwords <- rbind(clintonList$unigramCountNoStopwords, trumpList$unigramCountNoStopwords)[order(N, decreasing=TRUE)]
+bigramCountNoStopwords <- rbind(clintonList$bigramCountNoStopwords, trumpList$bigramCountNoStopwords)[order(N, decreasing=TRUE)]
+```
+
+### Question 1 Results
+
+```{r}
+unigramChi <- chiSquared(unigramCount)
+unigramChi[1:10]
+bigramChi <- chiSquared(bigramCount)
+bigramChi[1:10]
+# Without stopwords
+unigramChiNoStopwords <- chiSquared(unigramCountNoStopwords)
+unigramChiNoStopwords[1:10]
+bigramChiNoStopwords <- chiSquared(bigramCountNoStopwords)
+bigramChiNoStopwords[1:10]
+```
+
+### Parse into R structures
+
+```{r}
+# Get files into R
+clintonListOrlando <- parseCorpus(DirSource('CampaignSpeeches',pattern='clinton-orlando'), 'Clinton')
+trumpListOrlando <- parseCorpus(DirSource('CampaignSpeeches',pattern='trump-orlando'), 'Trump')
+# Combine data.tables
+unigramCountOrlando <- rbind(clintonListOrlando$unigramCount, trumpListOrlando$unigramCount)[order(N, decreasing=TRUE)]
+bigramCountOrlando <- rbind(clintonListOrlando$bigramCount, trumpListOrlando$bigramCount)[order(N, decreasing=TRUE)]
+# Without stopwords
+unigramCountNoStopwordsOrlando <- rbind(clintonListOrlando$unigramCountNoStopwords, trumpListOrlando$unigramCountNoStopwords)[order(N, decreasing=TRUE)]
+bigramCountNoStopwordsOrlando <- rbind(clintonListOrlando$bigramCountNoStopwords, trumpListOrlando$bigramCountNoStopwords)[order(N, decreasing=TRUE)]
+```
+
+### Question 2 Results
+
+```{r}
+unigramOrlandoChi <- chiSquared(unigramCountOrlando)
+unigramOrlandoChi[1:10]
+bigramOrlandoChi <- chiSquared(bigramCountOrlando)
+bigramOrlandoChi[1:10]
+# Without stopwords
+unigramOrlandoChiNoStopwords <- chiSquared(unigramCountNoStopwordsOrlando)
+unigramOrlandoChiNoStopwords[1:10]
+bigramOrlandoChiNoStopwords <- chiSquared(bigramCountNoStopwordsOrlando)
+bigramOrlandoChiNoStopwords[1:10]
+```
+
+### Parse into R structures
+
+```{r}
+# Get files into R
+clintonListOrlando <- parseCorpus(DirSource('CampaignSpeeches',pattern='clinton-orlando'), 'Clinton')
+trumpListOrlando <- parseCorpus(DirSource('CampaignSpeeches',pattern='trump-orlando'), 'Trump')
+# Combine data.tables
+unigramCountOrlando <- rbind(clintonListOrlando$unigramCount, trumpListOrlando$unigramCount)[order(N, decreasing=TRUE)]
+bigramCountOrlando <- rbind(clintonListOrlando$bigramCount, trumpListOrlando$bigramCount)[order(N, decreasing=TRUE)]
+# Without stopwords
+unigramCountNoStopwordsOrlando <- rbind(clintonListOrlando$unigramCountNoStopwords, trumpListOrlando$unigramCountNoStopwords)[order(N, decreasing=TRUE)]
+bigramCountNoStopwordsOrlando <- rbind(clintonListOrlando$bigramCountNoStopwords, trumpListOrlando$bigramCountNoStopwords)[order(N, decreasing=TRUE)]
+```
+
+### Question 3 Results
+
+```{r}
+unigramOrlandoChi <- chiSquared(unigramCountOrlando)
+unigramOrlandoChi[1:10]
+bigramOrlandoChi <- chiSquared(bigramCountOrlando)
+bigramOrlandoChi[1:10]
+# Without stopwords
+unigramOrlandoChiNoStopwords <- chiSquared(unigramCountNoStopwordsOrlando)
+unigramOrlandoChiNoStopwords[1:10]
+bigramOrlandoChiNoStopwords <- chiSquared(bigramCountNoStopwordsOrlando)
+bigramOrlandoChiNoStopwords[1:10]
 ```
