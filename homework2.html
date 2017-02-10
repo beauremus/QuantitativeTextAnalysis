@@ -282,7 +282,7 @@ bigramOrlandoChiNoStopwords[1:10]</code></pre>
 </div>
 <div id="question-3-results" class="section level3">
 <h3>Question 3 Results</h3>
-<pre class="r"><code>REFERENCE &lt;- corpus(readtext(&quot;CampaignSpeeches/*.txt&quot;, docvarsfrom = &quot;filenames&quot;))
+<pre class="r"><code>REFERENCE &lt;- corpus(readtext(&quot;CampaignSpeeches/*.txt&quot;, docvarsfrom=&quot;filenames&quot;))
 REFERENCE.dfm &lt;- dfm(REFERENCE, tolower=TRUE, removeNumbers=TRUE, removePunct=TRUE, removeSeparators=TRUE, stem=TRUE, remove=stopwords(&quot;english&quot;))
 refscores &lt;- c(rep(-1,7), rep(1,6))
 bs &lt;- textmodel(REFERENCE.dfm, refscores, model=&quot;NB&quot;, smooth=1)
@@ -300,6 +300,24 @@ plot(unigramChiNoStopwords$chi2, bayesScoreTrunc, xlim=c(xMin,xMax), ylim=c(yMin
 </div>
 <div id="question-4-results" class="section level3">
 <h3>Question 4 Results</h3>
+<pre class="r"><code>devosArticles &lt;- corpus(readtext(&quot;DevosArticles/*.txt&quot;, docvarsfrom=&quot;filenames&quot;))
+devosArticles.dfm &lt;- dfm(devosArticles, tolower=TRUE, removeNumbers=TRUE, removePunct=TRUE, removeSeparators=TRUE, stem=TRUE, remove=stopwords(&quot;english&quot;))
+devosRefscores &lt;- c(1,-1)
+devosWs &lt;- textmodel(devosArticles.dfm, devosRefscores, model=&quot;wordscores&quot;, smooth=1)
+devosBs &lt;- textmodel(devosArticles.dfm, devosRefscores, model=&quot;NB&quot;, smooth=1)
+# Predict
+predict(devosWs, devosArticles.dfm)</code></pre>
+<pre><code>## Predicted textmodel of type: wordscores
+## 
+##         textscore LBG se   ci lo   ci hi
+## Fox.txt    0.2651 0.0144  0.2369  0.2934
+## NYT.txt   -0.1985 0.0090 -0.2162 -0.1808</code></pre>
+<pre class="r"><code>predict(devosBs, devosArticles.dfm)</code></pre>
+<pre><code>## Predicted textmodel of type: Naive Bayes
+## 
+##              lp(1)     lp(-1)     Pr(1) Pr(-1) Predicted
+## Fox.txt -2154.5317 -2376.3014    1.0000 0.0000         1
+## NYT.txt -5234.1854 -4850.7314    0.0000 1.0000        -1</code></pre>
 </div>
 
 
